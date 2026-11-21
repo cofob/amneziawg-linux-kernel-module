@@ -11,6 +11,7 @@
 #include "noise.h"
 #include "cookie.h"
 #include "type.h"
+#include "relay.h"
 
 #include <linux/types.h>
 #include <linux/netfilter.h>
@@ -69,6 +70,7 @@ struct wg_peer {
 	u64 internal_id;
 	atomic_t jp_packet_counter;
 	unsigned int udp_window;
+	struct awg_relay relay;
 };
 
 struct wg_peer *wg_peer_create(struct wg_device *wg,

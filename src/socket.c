@@ -187,16 +187,17 @@ int wg_socket_send_skb_to_peer(struct wg_peer *peer, struct sk_buff *skb, u8 ds)
 }
 
 int wg_socket_send_buffer_to_peer(struct wg_peer *peer, void *buffer,
-				  size_t len, u8 ds, size_t padding, bool trailer)
+				  size_t len, u8 ds, size_t padding, bool trailer,
+				  const struct awg_relay *relay)
 {
 	struct sk_buff *skb;
 	void *crypto = NULL;
-	size_t trailer_len;
+	size_t trailer_len, tail_len = awg_relay_tail_size(relay);
 	struct chacha_state state;
 
-	trailer_len = trailer
-		? wg_peer_skb_random_trailer(peer, peer->device, padding + len)
-		: 0;
+	trailer_len = tail_len + (trailer
+		? wg_peer_skb_random_trailer(peer, peer->device, padding + len + tail_len)
+		: 0);
 	
 	skb = alloc_skb(len + padding + trailer_len + SKB_HEADER_LEN, GFP_ATOMIC);
 	if (unlikely(!skb))
@@ -213,11 +214,13 @@ int wg_socket_send_buffer_to_peer(struct wg_peer *peer, void *buffer,
 	buffer = skb_put_data(skb, buffer, len);
 
 	if (trailer_len)
-		get_random_bytes(skb_put(skb, trailer_len), trailer_len);
+		get_random_bytes(skb_put(skb, trailer_len), trailer_len - tail_len);
 
 	if (crypto &&
 			awg_header_protection_init(&state, peer->device, crypto))
 		chacha20_crypt(&state, buffer, buffer, len);
+
+	awg_relay_seal(relay, skb->data, skb->len);
 
 	return wg_socket_send_skb_to_peer(peer, skb, ds);
 }

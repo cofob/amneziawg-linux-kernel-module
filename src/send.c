@@ -29,6 +29,7 @@ static void wg_packet_send_handshake_initiation(struct wg_peer *peer)
 {
 	struct message_handshake_initiation packet;
 	struct wg_device *wg = peer->device;
+	struct awg_relay relay;
 	void *buffer;
 	u8 ds;
 	u16 junk_packet_count, junk_packet_size;
@@ -53,7 +54,7 @@ static void wg_packet_send_handshake_initiation(struct wg_peer *peer)
 		if (spec->pkt_size > 0) {
 			mutex_lock(&spec->lock);
 			jp_spec_applymods(spec, peer);
-			wg_socket_send_buffer_to_peer(peer, spec->pkt, spec->pkt_size, 0, 0, false);
+			wg_socket_send_buffer_to_peer(peer, spec->pkt, spec->pkt_size, 0, 0, false, NULL);
 			atomic_inc(&peer->jp_packet_counter);
 			mutex_unlock(&spec->lock);
 		}
@@ -72,7 +73,7 @@ static void wg_packet_send_handshake_initiation(struct wg_peer *peer)
 
 			get_random_bytes(buffer, junk_packet_size);
 			get_random_bytes(&ds, 1);
-			wg_socket_send_buffer_to_peer(peer, buffer, junk_packet_size, ds, 0, false);
+			wg_socket_send_buffer_to_peer(peer, buffer, junk_packet_size, ds, 0, false, NULL);
 		}
 
 		kfree(buffer);
@@ -85,8 +86,12 @@ static void wg_packet_send_handshake_initiation(struct wg_peer *peer)
 		wg_timers_any_authenticated_packet_sent(peer);
 		atomic64_set(&peer->last_sent_handshake,
 			     ktime_get_coarse_boottime_ns());
+		down_read(&peer->handshake.lock);
+		relay = peer->relay;
+		up_read(&peer->handshake.lock);
 		wg_socket_send_buffer_to_peer(peer, &packet, sizeof(packet),
-					      HANDSHAKE_DSCP, wg->init_padding, true);
+					      HANDSHAKE_DSCP, wg->init_padding, true, &relay);
+		memzero_explicit(&relay, sizeof(relay));
 		wg_timers_handshake_initiated(peer);
 	}
 }
@@ -158,7 +163,7 @@ void wg_packet_send_handshake_response(struct wg_peer *peer)
 			wg_socket_send_buffer_to_peer(peer, &packet,
 						      sizeof(packet),
 						      HANDSHAKE_DSCP,
-							  wg->resp_padding, true);
+							  wg->resp_padding, true, NULL);
 		}
 	}
 }

@@ -118,6 +118,10 @@
  *            WGPEER_A_ADVANCED_SECURITY: flag indicating that advanced security
  *                                       techniques provided by AmneziaWG should
  *                                       be used.
+ *            WGPEER_A_RELAY_KEY: len WG_KEY_LEN, all zeros to disable relay
+ *            WGPEER_A_RELAY_PATH: NLA_BINARY, up to 64 bytes of relay path data
+ *            WGPEER_A_RELAY_PATH_SIZE: NLA_U16, pads the relay path with
+ *                                      zeros to this size, at most 64
  *        0: NLA_NESTED
  *            ...
  *        ...
@@ -237,6 +241,9 @@ enum wgpeer_attribute {
 	WGPEER_A_ALLOWEDIPS,
 	WGPEER_A_PROTOCOL_VERSION,
 	WGPEER_A_ADVANCED_SECURITY,
+	WGPEER_A_RELAY_KEY,
+	WGPEER_A_RELAY_PATH,
+	WGPEER_A_RELAY_PATH_SIZE,
 	__WGPEER_A_LAST
 };
 #define WGPEER_A_MAX (__WGPEER_A_LAST - 1)

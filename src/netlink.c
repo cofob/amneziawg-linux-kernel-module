@@ -21,6 +21,7 @@
 
 #include <linux/inet.h>
 #include <linux/errno.h>
+#include <linux/minmax.h>
 #include <linux/string.h>
 #include <linux/types.h>
 #include <linux/in.h>
@@ -82,7 +83,10 @@ static const struct nla_policy peer_policy[WGPEER_A_MAX + 1] = {
 	[WGPEER_A_TX_BYTES]				= { .type = NLA_U64 },
 	[WGPEER_A_ALLOWEDIPS]				= { .type = NLA_NESTED },
 	[WGPEER_A_PROTOCOL_VERSION]			= { .type = NLA_U32 },
-	[WGPEER_A_ADVANCED_SECURITY]    		= { .type = NLA_FLAG }
+	[WGPEER_A_ADVANCED_SECURITY]    		= { .type = NLA_FLAG },
+	[WGPEER_A_RELAY_KEY]				= NLA_POLICY_EXACT_LEN(AWG_RELAY_KEY_SIZE),
+	[WGPEER_A_RELAY_PATH]				= { .type = NLA_BINARY, .len = AWG_RELAY_PATH_MAX },
+	[WGPEER_A_RELAY_PATH_SIZE]			= { .type = NLA_U16 }
 };
 
 static const struct nla_policy allowedip_policy[WGALLOWEDIP_A_MAX + 1] = {
@@ -320,6 +324,18 @@ get_peer(struct wg_peer *peer, struct sk_buff *skb, struct dump_ctx *ctx)
 		fail = nla_put(skb, WGPEER_A_PRESHARED_KEY,
 			       NOISE_SYMMETRIC_KEY_LEN,
 			       peer->handshake.preshared_key);
+		fail = fail ||
+		       (memchr_inv(peer->relay.key, 0, AWG_RELAY_KEY_SIZE) &&
+			nla_put(skb, WGPEER_A_RELAY_KEY, AWG_RELAY_KEY_SIZE, peer->relay.key));
+		if (peer->relay.path_len) {
+			u8 path[AWG_RELAY_PATH_MAX] = { 0 };
+			size_t n = max_t(size_t, peer->relay.path_len,
+					 peer->relay.path_size);
+
+			memcpy(path, peer->relay.path, peer->relay.path_len);
+			fail = fail ||
+			       nla_put(skb, WGPEER_A_RELAY_PATH, n, path);
+		}
 		up_read(&peer->handshake.lock);
 		if (fail)
 			goto err;
@@ -689,6 +705,23 @@ static int set_peer(struct wg_device *wg, struct nlattr **attrs)
 		up_write(&peer->handshake.lock);
 	}
 
+	if (attrs[WGPEER_A_RELAY_PATH_SIZE] &&
+	    nla_get_u16(attrs[WGPEER_A_RELAY_PATH_SIZE]) > AWG_RELAY_PATH_MAX) {
+		ret = -EINVAL;
+		goto out;
+	}
+
+	down_write(&peer->handshake.lock);
+	if (attrs[WGPEER_A_RELAY_KEY])
+		memcpy(peer->relay.key, nla_data(attrs[WGPEER_A_RELAY_KEY]), AWG_RELAY_KEY_SIZE);
+	if (attrs[WGPEER_A_RELAY_PATH]) {
+		peer->relay.path_len = nla_len(attrs[WGPEER_A_RELAY_PATH]);
+		memcpy(peer->relay.path, nla_data(attrs[WGPEER_A_RELAY_PATH]), peer->relay.path_len);
+	}
+	if (attrs[WGPEER_A_RELAY_PATH_SIZE])
+		peer->relay.path_size = nla_get_u16(attrs[WGPEER_A_RELAY_PATH_SIZE]);
+	up_write(&peer->handshake.lock);
+
 	if (attrs[WGPEER_A_ENDPOINT]) {
 		struct sockaddr *addr = nla_data(attrs[WGPEER_A_ENDPOINT]);
 		size_t len = nla_len(attrs[WGPEER_A_ENDPOINT]);
@@ -743,6 +776,9 @@ out:
 	if (attrs[WGPEER_A_PRESHARED_KEY])
 		memzero_explicit(nla_data(attrs[WGPEER_A_PRESHARED_KEY]),
 				 nla_len(attrs[WGPEER_A_PRESHARED_KEY]));
+	if (attrs[WGPEER_A_RELAY_KEY])
+		memzero_explicit(nla_data(attrs[WGPEER_A_RELAY_KEY]),
+				 nla_len(attrs[WGPEER_A_RELAY_KEY]));
 	return ret;
 }
 
